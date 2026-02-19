@@ -1,0 +1,35 @@
+{
+    "extends": "../../tsconfig.json",
+    "compilerOptions": {
+        "paths": {
+            "$lib/*": [
+                "./src/lib/*"
+            ],
+            "$components/*": [
+                "./src/lib/components/*"
+            ],
+            "$stores/*": [
+                "./src/lib/stores/*"
+            ],
+            "$utils/*": [
+                "./src/lib/utils/*"
+            ],
+            "$webrtc/*": [
+                "./src/lib/webrtc/*"
+            ],
+            "$sync/*": [
+                "./src/lib/sync/*"
+            ]
+        },
+        "rootDirs": [
+            ".",
+            "./.svelte-kit/types"
+        ]
+    },
+    "include": [
+        ".svelte-kit/ambient.d.ts",
+        ".svelte-kit/types/**/$types.d.ts",
+        "src/**/*.ts",
+        "src/**/*.svelte"
+    ]
+}

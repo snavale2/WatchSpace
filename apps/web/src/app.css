@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Global Resets ─────────────────────────── */
+:root {
+  --color-brand: #5c7cfa;
+  --color-surface: #0f0f14;
+}
+
+body {
+  @apply bg-surface-dark text-white font-sans antialiased;
+}
+
+/* ── Scrollbar Styling (Webkit) ────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-surface-dark;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-surface-border rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-brand-500;
+}
+
+/* ── Video.js Overrides ────────────────────── */
+.video-js {
+  @apply w-full rounded-xl overflow-hidden;
+}
+
+.vjs-control-bar {
+  @apply bg-surface-card/90 backdrop-blur-sm;
+}
