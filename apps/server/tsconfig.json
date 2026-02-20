@@ -1,13 +1,14 @@
 {
-    "extends": "../../tsconfig.json",
-    "compilerOptions": {
-        "outDir": "./dist",
-        "rootDir": "./src",
-        "types": [
-            "bun-types"
-        ]
-    },
-    "include": [
-        "src"
-    ]
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": ["bun-types"],
+    /* Server-specific: no DOM libs */
+    "lib": ["ES2022"],
+    /* Stricter for backend */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["src"]
 }

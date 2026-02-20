@@ -1,35 +1,23 @@
 {
-    "extends": "../../tsconfig.json",
-    "compilerOptions": {
-        "paths": {
-            "$lib/*": [
-                "./src/lib/*"
-            ],
-            "$components/*": [
-                "./src/lib/components/*"
-            ],
-            "$stores/*": [
-                "./src/lib/stores/*"
-            ],
-            "$utils/*": [
-                "./src/lib/utils/*"
-            ],
-            "$webrtc/*": [
-                "./src/lib/webrtc/*"
-            ],
-            "$sync/*": [
-                "./src/lib/sync/*"
-            ]
-        },
-        "rootDirs": [
-            ".",
-            "./.svelte-kit/types"
-        ]
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "$lib/*": ["./src/lib/*"],
+      "$components/*": ["./src/lib/components/*"],
+      "$stores/*": ["./src/lib/stores/*"],
+      "$utils/*": ["./src/lib/utils/*"],
+      "$webrtc/*": ["./src/lib/webrtc/*"],
+      "$sync/*": ["./src/lib/sync/*"]
     },
-    "include": [
-        ".svelte-kit/ambient.d.ts",
-        ".svelte-kit/types/**/$types.d.ts",
-        "src/**/*.ts",
-        "src/**/*.svelte"
-    ]
+    "rootDirs": [".", "./.svelte-kit/types"],
+    /* Frontend-specific strict flags */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": [
+    ".svelte-kit/ambient.d.ts",
+    ".svelte-kit/types/**/$types.d.ts",
+    "src/**/*.ts",
+    "src/**/*.svelte"
+  ]
 }

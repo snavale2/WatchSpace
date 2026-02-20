@@ -5,12 +5,24 @@
   "printWidth": 100,
   "tabWidth": 2,
   "useTabs": false,
+  "arrowParens": "always",
+  "bracketSpacing": true,
+  "endOfLine": "lf",
+  "htmlWhitespaceSensitivity": "css",
+  "quoteProps": "as-needed",
   "plugins": ["prettier-plugin-svelte"],
   "overrides": [
     {
       "files": "*.svelte",
       "options": {
-        "parser": "svelte"
+        "parser": "svelte",
+        "svelteIndentScriptAndStyle": true
+      }
+    },
+    {
+      "files": "*.md",
+      "options": {
+        "proseWrap": "always"
       }
     }
   ]
