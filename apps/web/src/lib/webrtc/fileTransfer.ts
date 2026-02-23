@@ -61,6 +61,17 @@ export class FileReceiver {
     this.chunks.clear();
   }
 
+  /** Get the current metadata (if set) */
+  getMetadata(): FileMetadata | null {
+    return this.meta;
+  }
+
+  /** Get transfer progress (0–1) */
+  getProgress(): number {
+    if (!this.meta) return 0;
+    return this.chunks.size / this.meta.totalChunks;
+  }
+
   addChunk(data: ArrayBuffer): number {
     const view = new DataView(data);
     const index = view.getUint32(0);

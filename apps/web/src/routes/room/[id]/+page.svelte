@@ -11,13 +11,16 @@
   import { userStore } from '$stores/user';
   import { peerStore } from '$stores/peers';
   import { connectionStore } from '$stores/connection';
+  import { fileTransferStore } from '$stores/fileTransfer';
   import { SignalingClient } from '$webrtc/signaling';
   import { PeerManager } from '$webrtc/PeerManager';
+  import { FILE_TRANSFER } from '@watchspace/shared';
 
   $: roomId = $page.params.id;
 
   let signaling: SignalingClient | null = null;
   let peerManager: PeerManager | null = null;
+  let fileInput: HTMLInputElement;
 
   onMount(async () => {
     // 1. Join room via REST API
@@ -52,19 +55,55 @@
   });
 
   onDestroy(() => {
-    // Clean up WebRTC connections
     peerManager?.destroy();
     peerManager = null;
-
-    // Disconnect from signaling server
     signaling?.disconnect();
     signaling = null;
-
-    // Reset stores
     roomStore.reset();
+    fileTransferStore.reset();
     connectionStore.set({ status: 'disconnected', peerCount: 0, connectedPeerCount: 0 });
     console.log('[Room] Cleaned up');
   });
+
+  /** Handle file selection from the file picker */
+  async function handleFileSelect(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowed = FILE_TRANSFER.ALLOWED_MIME_TYPES as readonly string[];
+    if (!allowed.includes(file.type)) {
+      fileTransferStore.setError(`Unsupported file type: ${file.type}. Use MP4, WebM, or OGG.`);
+      return;
+    }
+
+    // Validate file size
+    if (file.size > FILE_TRANSFER.MAX_FILE_SIZE) {
+      fileTransferStore.setError(
+        `File too large. Maximum: ${FILE_TRANSFER.MAX_FILE_SIZE / 1024 / 1024 / 1024} GB`,
+      );
+      return;
+    }
+
+    console.log(`[Room] Selected file: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)} MB)`);
+
+    if (peerManager) {
+      await peerManager.sendFileToPeers(file);
+    } else {
+      // No peer manager yet — just set the local URL
+      const url = URL.createObjectURL(file);
+      fileTransferStore.setVideoUrl(url, file.name);
+    }
+  }
+
+  /** Format bytes to human-readable string */
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
 </script>
 
 <svelte:head>
@@ -100,16 +139,74 @@
         {/if}
       </div>
     </div>
-    <RoomControls />
+
+    <div class="flex items-center gap-2">
+      <!-- File picker button -->
+      <button
+        on:click={() => fileInput.click()}
+        class="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
+        disabled={$fileTransferStore.isSending}
+      >
+        📁 Load Video
+      </button>
+      <input
+        bind:this={fileInput}
+        type="file"
+        accept="video/mp4,video/webm,video/ogg,video/x-matroska"
+        on:change={handleFileSelect}
+        class="hidden"
+      />
+      <RoomControls />
+    </div>
   </header>
+
+  <!-- Transfer progress bar -->
+  {#if $fileTransferStore.isSending || $fileTransferStore.isReceiving}
+    <div class="px-4 py-2 bg-surface-card/50 border-b border-surface-border">
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-gray-400">
+          {$fileTransferStore.isSending ? '📤 Sending' : '📥 Receiving'}
+          <strong class="text-white">{$fileTransferStore.fileName}</strong>
+          ({formatBytes($fileTransferStore.fileSize)})
+        </span>
+        <div class="flex-1 h-1.5 bg-surface-dark rounded-full overflow-hidden">
+          <div
+            class="h-full bg-brand-500 rounded-full transition-all duration-300"
+            style="width: {$fileTransferStore.progress * 100}%"
+          ></div>
+        </div>
+        <span class="text-xs text-brand-400 font-mono">
+          {Math.round($fileTransferStore.progress * 100)}%
+        </span>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Error banner -->
+  {#if $fileTransferStore.error}
+    <div class="px-4 py-2 bg-red-500/10 border-b border-red-500/20">
+      <span class="text-xs text-red-400">⚠️ {$fileTransferStore.error}</span>
+    </div>
+  {/if}
 
   <!-- Main content -->
   <div class="flex-1 flex overflow-hidden">
     <!-- Video area -->
     <div class="flex-1 flex flex-col">
       <div class="flex-1 relative">
-        <VideoPlayer />
+        <VideoPlayer src={$fileTransferStore.receivedVideoUrl ?? ''} />
         <ScreenShare />
+
+        <!-- No video loaded prompt -->
+        {#if !$fileTransferStore.receivedVideoUrl && !$fileTransferStore.isReceiving}
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div class="text-center animate-fade-in">
+              <p class="text-4xl mb-3">🎬</p>
+              <p class="text-gray-400 text-sm">Load a video to start watching together</p>
+              <p class="text-gray-600 text-xs mt-1">MP4, WebM, or OGG • Max 4 GB</p>
+            </div>
+          </div>
+        {/if}
       </div>
 
       <!-- Peer video tiles -->

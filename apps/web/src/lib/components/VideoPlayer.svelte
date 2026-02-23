@@ -24,11 +24,29 @@
     player.on('play', () => onPlay?.(player?.currentTime() ?? 0));
     player.on('pause', () => onPause?.(player?.currentTime() ?? 0));
     player.on('seeked', () => onSeek?.(player?.currentTime() ?? 0));
+
+    // If src is already set, load it
+    if (src) {
+      player.src({ src, type: guessMimeType(src) });
+    }
   });
+
+  // React to src changes
+  $: if (player && src) {
+    player.src({ src, type: guessMimeType(src) });
+  }
 
   onDestroy(() => {
     player?.dispose();
   });
+
+  function guessMimeType(url: string): string {
+    if (url.includes('.webm')) return 'video/webm';
+    if (url.includes('.ogg')) return 'video/ogg';
+    if (url.includes('.mkv')) return 'video/x-matroska';
+    // Blob URLs from File objects carry the original MIME type
+    return 'video/mp4';
+  }
 
   /** Programmatically seek to a time (seconds) */
   export function seekTo(time: number) {
@@ -47,7 +65,7 @@
 </script>
 
 <div class="w-full h-full bg-black rounded-xl overflow-hidden">
-  <video bind:this={videoElement} class="video-js vjs-big-play-centered" {src}>
+  <video bind:this={videoElement} class="video-js vjs-big-play-centered">
     <track kind="captions" />
   </video>
 </div>

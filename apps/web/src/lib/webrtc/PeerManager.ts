@@ -5,18 +5,22 @@
 //
 // Orchestrates signaling client ↔ simple-peer connections.
 // Handles the full WebRTC lifecycle: peer list, offer/answer,
-// ICE candidates, join/leave, and cleanup.
+// ICE candidates, join/leave, file transfer, and cleanup.
 // ──────────────────────────────────────────────
 
-import { WS_EVENTS, type WSMessage } from '@watchspace/shared';
+import { WS_EVENTS, type WSMessage, type FileMetadata } from '@watchspace/shared';
 import type SimplePeer from 'simple-peer';
 import type { SignalingClient } from './signaling';
 import { createPeer, signalPeer, destroyPeer, type PeerConnection } from './peer';
+import { sendFile, FileReceiver } from './fileTransfer';
 import { connectionStore } from '../stores/connection';
+import { fileTransferStore } from '../stores/fileTransfer';
 
 export class PeerManager {
   private peers = new Map<string, PeerConnection>();
   private localStream?: MediaStream;
+  private fileReceiver = new FileReceiver();
+  private receivedVideoUrl: string | null = null;
 
   constructor(
     private signaling: SignalingClient,
@@ -30,6 +34,52 @@ export class PeerManager {
     this.localStream = stream;
   }
 
+  /** Send a video file to all connected peers via data channels */
+  async sendFileToPeers(file: File) {
+    const connectedPeers = Array.from(this.peers.values()).filter((c) => c.connected);
+
+    if (connectedPeers.length === 0) {
+      console.warn('[PeerManager] No connected peers to send file to');
+      // Even with no peers, set the local video URL for the host
+      const url = URL.createObjectURL(file);
+      fileTransferStore.setVideoUrl(url, file.name);
+      return;
+    }
+
+    console.log(
+      `[PeerManager] Sending "${file.name}" (${(file.size / 1024 / 1024).toFixed(1)} MB) to ${connectedPeers.length} peers`,
+    );
+    fileTransferStore.startSending(file.name, file.size);
+
+    // Set the host's local video URL immediately
+    const localUrl = URL.createObjectURL(file);
+    fileTransferStore.setVideoUrl(localUrl, file.name);
+
+    try {
+      // Send to all connected peers in parallel
+      await Promise.all(
+        connectedPeers.map((conn) =>
+          sendFile(
+            file,
+            (data) => {
+              if (!conn.peer.destroyed && conn.connected) {
+                conn.peer.send(data);
+              }
+            },
+            (progress) => {
+              fileTransferStore.setSendProgress(progress);
+            },
+          ),
+        ),
+      );
+      fileTransferStore.doneSending();
+      console.log('[PeerManager] File transfer complete');
+    } catch (err) {
+      console.error('[PeerManager] File transfer failed:', err);
+      fileTransferStore.setError('File transfer failed');
+    }
+  }
+
   /** Clean up all connections and listeners */
   destroy() {
     for (const conn of this.peers.values()) {
@@ -37,6 +87,13 @@ export class PeerManager {
     }
     this.peers.clear();
     this.updateConnectionStore();
+
+    // Revoke any received video URL
+    if (this.receivedVideoUrl) {
+      URL.revokeObjectURL(this.receivedVideoUrl);
+      this.receivedVideoUrl = null;
+    }
+
     console.log('[PeerManager] Destroyed all peer connections');
   }
 
@@ -117,6 +174,43 @@ export class PeerManager {
     });
   }
 
+  // ── Data channel message handling ─────────────
+
+  private handleDataMessage(data: Uint8Array) {
+    // Try to parse as JSON (metadata/completion messages)
+    try {
+      const text = new TextDecoder().decode(data);
+      const msg = JSON.parse(text) as { type: string; data: unknown };
+
+      if (msg.type === 'file:meta') {
+        const meta = msg.data as FileMetadata;
+        console.log(`[PeerManager] Receiving file: ${meta.fileName} (${meta.totalChunks} chunks)`);
+        this.fileReceiver = new FileReceiver();
+        this.fileReceiver.setMetadata(meta);
+        fileTransferStore.startReceiving(meta.fileName, meta.fileSize);
+        return;
+      }
+
+      if (msg.type === 'file:complete') {
+        console.log('[PeerManager] File transfer complete — assembling');
+        const result = this.fileReceiver.assemble();
+        if (result) {
+          const url = URL.createObjectURL(result.blob);
+          this.receivedVideoUrl = url;
+          fileTransferStore.doneReceiving(url);
+          console.log(`[PeerManager] Video ready: ${result.meta.fileName}`);
+        }
+        return;
+      }
+    } catch {
+      // Not JSON — it's a binary chunk
+    }
+
+    // Binary chunk data
+    this.fileReceiver.addChunk(new Uint8Array(data).buffer as ArrayBuffer);
+    fileTransferStore.setReceiveProgress(this.fileReceiver.getProgress());
+  }
+
   // ── Peer connection lifecycle ───────────────
 
   private createConnection(remoteUserId: string, initiator: boolean): PeerConnection {
@@ -152,13 +246,10 @@ export class PeerManager {
       },
       onStream: (stream) => {
         console.log(`[PeerManager] Received stream from ${remoteUserId}`);
-        // TODO: Wire into video player (Step 3+)
         void stream;
       },
       onData: (data) => {
-        console.log(`[PeerManager] Data from ${remoteUserId}:`, data.byteLength, 'bytes');
-        // TODO: Handle file chunks (Step 4+)
-        void data;
+        this.handleDataMessage(data);
       },
       onClose: () => {
         this.removePeer(remoteUserId);
