@@ -32,6 +32,7 @@ export default defineConfig({
         'src/lib/stores/user.ts',
         'src/lib/stores/connection.ts',
         'src/lib/stores/fileTransfer.ts',
+        'src/lib/stores/media.ts',
       ],
       thresholds: {
         statements: 80,

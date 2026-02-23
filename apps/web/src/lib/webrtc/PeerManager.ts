@@ -23,6 +23,7 @@ export class PeerManager {
   private fileReceiver = new FileReceiver();
   private receivedVideoUrl: string | null = null;
   private playbackSync: PlaybackSync | null = null;
+  private onRemoteStreamCb: ((userId: string, stream: MediaStream) => void) | null = null;
 
   constructor(
     private signaling: SignalingClient,
@@ -36,6 +37,11 @@ export class PeerManager {
     this.localStream = stream;
   }
 
+  /** Set callback for when remote streams are received */
+  onRemoteStream(cb: (userId: string, stream: MediaStream) => void) {
+    this.onRemoteStreamCb = cb;
+  }
+
   /** Attach a PlaybackSync instance to receive sync events */
   setPlaybackSync(sync: PlaybackSync) {
     this.playbackSync = sync;
@@ -46,6 +52,32 @@ export class PeerManager {
     for (const conn of this.peers.values()) {
       if (conn.connected && !conn.peer.destroyed) {
         conn.peer.send(data);
+      }
+    }
+  }
+
+  /** Add a media stream to all existing peer connections */
+  addStreamToAll(stream: MediaStream) {
+    for (const conn of this.peers.values()) {
+      if (!conn.peer.destroyed) {
+        try {
+          conn.peer.addStream(stream);
+        } catch (err) {
+          console.warn(`[PeerManager] Failed to add stream to ${conn.userId}:`, err);
+        }
+      }
+    }
+  }
+
+  /** Remove a media stream from all existing peer connections */
+  removeStreamFromAll(stream: MediaStream) {
+    for (const conn of this.peers.values()) {
+      if (!conn.peer.destroyed) {
+        try {
+          conn.peer.removeStream(stream);
+        } catch (err) {
+          console.warn(`[PeerManager] Failed to remove stream from ${conn.userId}:`, err);
+        }
       }
     }
   }
@@ -270,7 +302,7 @@ export class PeerManager {
       },
       onStream: (stream) => {
         console.log(`[PeerManager] Received stream from ${remoteUserId}`);
-        void stream;
+        this.onRemoteStreamCb?.(remoteUserId, stream);
       },
       onData: (data) => {
         this.handleDataMessage(data);

@@ -1,20 +1,38 @@
 <script lang="ts">
-  let cameraOn = false;
-  let micOn = false;
+  import { createEventDispatcher } from 'svelte';
+  import { mediaStore } from '$stores/media';
 
-  function toggleCamera() {
-    cameraOn = !cameraOn;
-    // TODO: Toggle local camera stream via WebRTC peer
+  const dispatch = createEventDispatcher<{
+    cameraToggle: { stream: MediaStream | null };
+    micToggle: { stream: MediaStream | null };
+    screenShareStart: { stream: MediaStream };
+    screenShareStop: undefined;
+  }>();
+
+  async function toggleCamera() {
+    const stream = await mediaStore.toggleCamera();
+    dispatch('cameraToggle', { stream });
   }
 
-  function toggleMic() {
-    micOn = !micOn;
-    // TODO: Toggle local mic stream via WebRTC peer
+  async function toggleMic() {
+    const stream = await mediaStore.toggleMic();
+    dispatch('micToggle', { stream });
+  }
+
+  async function startScreenShare() {
+    const stream = await mediaStore.startScreenShare();
+    if (stream) {
+      dispatch('screenShareStart', { stream });
+    }
+  }
+
+  function stopScreenShare() {
+    mediaStore.stopScreenShare();
+    dispatch('screenShareStop');
   }
 
   function copyRoomLink() {
     navigator.clipboard.writeText(window.location.href);
-    // TODO: Show a brief toast notification
   }
 
   function leaveRoom() {
@@ -25,22 +43,32 @@
 <div class="flex items-center gap-2">
   <button
     on:click={toggleCamera}
-    class="p-2 rounded-lg transition-colors {cameraOn
+    class="p-2 rounded-lg transition-colors {$mediaStore.cameraOn
       ? 'bg-brand-600 text-white'
       : 'bg-surface-dark text-gray-400 hover:text-white'}"
-    aria-label={cameraOn ? 'Turn off camera' : 'Turn on camera'}
+    aria-label={$mediaStore.cameraOn ? 'Turn off camera' : 'Turn on camera'}
   >
     📷
   </button>
 
   <button
     on:click={toggleMic}
-    class="p-2 rounded-lg transition-colors {micOn
+    class="p-2 rounded-lg transition-colors {$mediaStore.micOn
       ? 'bg-brand-600 text-white'
       : 'bg-surface-dark text-gray-400 hover:text-white'}"
-    aria-label={micOn ? 'Mute mic' : 'Unmute mic'}
+    aria-label={$mediaStore.micOn ? 'Mute mic' : 'Unmute mic'}
   >
     🎤
+  </button>
+
+  <button
+    on:click={$mediaStore.screenSharing ? stopScreenShare : startScreenShare}
+    class="p-2 rounded-lg transition-colors {$mediaStore.screenSharing
+      ? 'bg-brand-600 text-white'
+      : 'bg-surface-dark text-gray-400 hover:text-white'}"
+    aria-label={$mediaStore.screenSharing ? 'Stop sharing' : 'Share screen'}
+  >
+    🖥️
   </button>
 
   <button
