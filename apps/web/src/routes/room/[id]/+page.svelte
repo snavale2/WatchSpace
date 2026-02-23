@@ -14,13 +14,16 @@
   import { fileTransferStore } from '$stores/fileTransfer';
   import { SignalingClient } from '$webrtc/signaling';
   import { PeerManager } from '$webrtc/PeerManager';
+  import { PlaybackSync } from '$sync/playback';
   import { FILE_TRANSFER } from '@watchspace/shared';
 
   $: roomId = $page.params.id;
 
   let signaling: SignalingClient | null = null;
   let peerManager: PeerManager | null = null;
+  let playbackSync: PlaybackSync | null = null;
   let fileInput: HTMLInputElement;
+  let videoPlayer: VideoPlayer;
 
   onMount(async () => {
     // 1. Join room via REST API
@@ -51,10 +54,36 @@
 
     // 3. Create PeerManager to handle WebRTC connections
     peerManager = new PeerManager(signaling, $userStore.id);
+
+    // 4. Determine host status — first user in the room is the host
+    // The ROOM_PEER_LIST event will tell us if we're alone (host) or joining existing peers (guest)
+    signaling.on('room:peer-list', (msg) => {
+      const { peers } = msg.data as { peers: string[] };
+      const isHost = peers.length === 0;
+      roomStore.setHost(isHost);
+      console.log(`[Room] Role: ${isHost ? 'HOST' : 'GUEST'}`);
+
+      // 5. Create PlaybackSync now that we know host status
+      if (peerManager && !playbackSync) {
+        playbackSync = new PlaybackSync(
+          (data) => peerManager?.broadcastToAll(data),
+          $userStore.id,
+          isHost,
+          () => videoPlayer?.getCurrentTime?.() ?? 0,
+          (t) => videoPlayer?.seekTo(t),
+          () => videoPlayer?.play(),
+          () => videoPlayer?.pause(),
+        );
+        peerManager.setPlaybackSync(playbackSync);
+      }
+    });
+
     console.log('[Room] PeerManager initialised — waiting for peers');
   });
 
   onDestroy(() => {
+    playbackSync?.destroy();
+    playbackSync = null;
     peerManager?.destroy();
     peerManager = null;
     signaling?.disconnect();
@@ -65,20 +94,18 @@
     console.log('[Room] Cleaned up');
   });
 
-  /** Handle file selection from the file picker */
+  /** Handle file selection */
   async function handleFileSelect(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
 
-    // Validate file type
     const allowed = FILE_TRANSFER.ALLOWED_MIME_TYPES as readonly string[];
     if (!allowed.includes(file.type)) {
       fileTransferStore.setError(`Unsupported file type: ${file.type}. Use MP4, WebM, or OGG.`);
       return;
     }
 
-    // Validate file size
     if (file.size > FILE_TRANSFER.MAX_FILE_SIZE) {
       fileTransferStore.setError(
         `File too large. Maximum: ${FILE_TRANSFER.MAX_FILE_SIZE / 1024 / 1024 / 1024} GB`,
@@ -91,10 +118,25 @@
     if (peerManager) {
       await peerManager.sendFileToPeers(file);
     } else {
-      // No peer manager yet — just set the local URL
       const url = URL.createObjectURL(file);
       fileTransferStore.setVideoUrl(url, file.name);
     }
+  }
+
+  /** VideoPlayer event handlers wired through PlaybackSync */
+  function handlePlay(time: number) {
+    void time;
+    playbackSync?.onLocalPlay();
+  }
+
+  function handlePause(time: number) {
+    void time;
+    playbackSync?.onLocalPause();
+  }
+
+  function handleSeek(time: number) {
+    void time;
+    playbackSync?.onLocalSeek();
   }
 
   /** Format bytes to human-readable string */
@@ -138,24 +180,33 @@
           <span class="text-xs text-gray-500">Waiting</span>
         {/if}
       </div>
+
+      <!-- Host badge -->
+      {#if $roomStore.isHost}
+        <span class="text-[10px] bg-brand-600/30 text-brand-400 px-1.5 py-0.5 rounded font-semibold"
+          >HOST</span
+        >
+      {/if}
     </div>
 
     <div class="flex items-center gap-2">
-      <!-- File picker button -->
-      <button
-        on:click={() => fileInput.click()}
-        class="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
-        disabled={$fileTransferStore.isSending}
-      >
-        📁 Load Video
-      </button>
-      <input
-        bind:this={fileInput}
-        type="file"
-        accept="video/mp4,video/webm,video/ogg,video/x-matroska"
-        on:change={handleFileSelect}
-        class="hidden"
-      />
+      <!-- File picker button (host only) -->
+      {#if $roomStore.isHost}
+        <button
+          on:click={() => fileInput.click()}
+          class="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
+          disabled={$fileTransferStore.isSending}
+        >
+          📁 Load Video
+        </button>
+        <input
+          bind:this={fileInput}
+          type="file"
+          accept="video/mp4,video/webm,video/ogg,video/x-matroska"
+          on:change={handleFileSelect}
+          class="hidden"
+        />
+      {/if}
       <RoomControls />
     </div>
   </header>
@@ -194,7 +245,13 @@
     <!-- Video area -->
     <div class="flex-1 flex flex-col">
       <div class="flex-1 relative">
-        <VideoPlayer src={$fileTransferStore.receivedVideoUrl ?? ''} />
+        <VideoPlayer
+          bind:this={videoPlayer}
+          src={$fileTransferStore.receivedVideoUrl ?? ''}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          onSeek={handleSeek}
+        />
         <ScreenShare />
 
         <!-- No video loaded prompt -->
@@ -202,8 +259,12 @@
           <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div class="text-center animate-fade-in">
               <p class="text-4xl mb-3">🎬</p>
-              <p class="text-gray-400 text-sm">Load a video to start watching together</p>
-              <p class="text-gray-600 text-xs mt-1">MP4, WebM, or OGG • Max 4 GB</p>
+              {#if $roomStore.isHost}
+                <p class="text-gray-400 text-sm">Load a video to start watching together</p>
+                <p class="text-gray-600 text-xs mt-1">MP4, WebM, or OGG • Max 4 GB</p>
+              {:else}
+                <p class="text-gray-400 text-sm">Waiting for the host to load a video...</p>
+              {/if}
             </div>
           </div>
         {/if}

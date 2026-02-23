@@ -8,11 +8,12 @@
 // ICE candidates, join/leave, file transfer, and cleanup.
 // ──────────────────────────────────────────────
 
-import { WS_EVENTS, type WSMessage, type FileMetadata } from '@watchspace/shared';
+import { WS_EVENTS, type WSMessage, type FileMetadata, type SyncEvent } from '@watchspace/shared';
 import type SimplePeer from 'simple-peer';
 import type { SignalingClient } from './signaling';
 import { createPeer, signalPeer, destroyPeer, type PeerConnection } from './peer';
 import { sendFile, FileReceiver } from './fileTransfer';
+import type { PlaybackSync } from '../sync/playback';
 import { connectionStore } from '../stores/connection';
 import { fileTransferStore } from '../stores/fileTransfer';
 
@@ -21,6 +22,7 @@ export class PeerManager {
   private localStream?: MediaStream;
   private fileReceiver = new FileReceiver();
   private receivedVideoUrl: string | null = null;
+  private playbackSync: PlaybackSync | null = null;
 
   constructor(
     private signaling: SignalingClient,
@@ -32,6 +34,20 @@ export class PeerManager {
   /** Provide a local media stream to share with peers */
   setLocalStream(stream: MediaStream) {
     this.localStream = stream;
+  }
+
+  /** Attach a PlaybackSync instance to receive sync events */
+  setPlaybackSync(sync: PlaybackSync) {
+    this.playbackSync = sync;
+  }
+
+  /** Broadcast a string message to all connected peers via data channel */
+  broadcastToAll(data: string | ArrayBuffer) {
+    for (const conn of this.peers.values()) {
+      if (conn.connected && !conn.peer.destroyed) {
+        conn.peer.send(data);
+      }
+    }
   }
 
   /** Send a video file to all connected peers via data channels */
@@ -200,6 +216,14 @@ export class PeerManager {
           fileTransferStore.doneReceiving(url);
           console.log(`[PeerManager] Video ready: ${result.meta.fileName}`);
         }
+        return;
+      }
+
+      // Sync events (play/pause/seek) → forward to PlaybackSync
+      if (msg.type.startsWith('sync:') && this.playbackSync) {
+        const syncEvent = msg.data as SyncEvent;
+        console.log(`[PeerManager] Sync event: ${syncEvent.type} at ${syncEvent.currentTime}s`);
+        this.playbackSync.handleRemote(syncEvent);
         return;
       }
     } catch {

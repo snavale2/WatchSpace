@@ -53,6 +53,11 @@
     player?.currentTime(time);
   }
 
+  /** Get current playback time (seconds) */
+  export function getCurrentTime(): number {
+    return player?.currentTime() ?? 0;
+  }
+
   /** Programmatically play */
   export function play() {
     player?.play();

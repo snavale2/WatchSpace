@@ -7,164 +7,174 @@ vi.mock('@watchspace/shared', () => ({
     MAX_DRIFT: 1.5,
     SEEK_DEBOUNCE_MS: 300,
   },
-  WS_EVENTS: {
-    SYNC_PLAY: 'sync:play',
-    SYNC_PAUSE: 'sync:pause',
-    SYNC_SEEK: 'sync:seek',
-  },
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Handler = (msg: any) => void;
-
-function createMockSignaling() {
-  const handlers = new Map<string, Handler>();
-  return {
-    on: vi.fn((event: string, handler: Handler) => {
-      handlers.set(event, handler);
-    }),
-    send: vi.fn(),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    _trigger: (event: string, data: any) => {
-      handlers.get(event)?.({ data });
-    },
-  };
-}
-
 describe('PlaybackSync', () => {
-  let signaling: ReturnType<typeof createMockSignaling>;
+  let broadcast: ReturnType<typeof vi.fn>;
   let getTime: ReturnType<typeof vi.fn>;
   let seekTo: ReturnType<typeof vi.fn>;
   let play: ReturnType<typeof vi.fn>;
   let pause: ReturnType<typeof vi.fn>;
-  let sync: PlaybackSync;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    signaling = createMockSignaling();
+    broadcast = vi.fn();
     getTime = vi.fn().mockReturnValue(42.5);
     seekTo = vi.fn();
     play = vi.fn();
     pause = vi.fn();
-    sync = new PlaybackSync(signaling as any, 'user-1', getTime, seekTo, play, pause);
   });
 
   afterEach(() => {
-    sync.destroy();
     vi.useRealTimers();
   });
 
-  // ── Registration ──────────────────────────────
+  // ── Host broadcast ─────────────────────────────
 
-  it('registers listeners for play, pause, and seek events', () => {
-    expect(signaling.on).toHaveBeenCalledWith('sync:play', expect.any(Function));
-    expect(signaling.on).toHaveBeenCalledWith('sync:pause', expect.any(Function));
-    expect(signaling.on).toHaveBeenCalledWith('sync:seek', expect.any(Function));
-  });
+  describe('Host', () => {
+    let sync: PlaybackSync;
 
-  // ── Local events ──────────────────────────────
+    beforeEach(() => {
+      sync = new PlaybackSync(broadcast, 'user-1', true, getTime, seekTo, play, pause);
+    });
 
-  it('broadcasts play event on local play', () => {
-    sync.onLocalPlay();
+    afterEach(() => {
+      sync.destroy();
+    });
 
-    expect(signaling.send).toHaveBeenCalledWith('sync:play', {
-      type: 'play',
-      currentTime: 42.5,
-      timestamp: expect.any(Number),
-      senderId: 'user-1',
+    it('broadcasts play event on local play', () => {
+      sync.onLocalPlay();
+
+      expect(broadcast).toHaveBeenCalledTimes(1);
+      const sent = JSON.parse(broadcast.mock.calls[0][0]);
+      expect(sent.type).toBe('sync:play');
+      expect(sent.data.type).toBe('play');
+      expect(sent.data.currentTime).toBe(42.5);
+      expect(sent.data.senderId).toBe('user-1');
+    });
+
+    it('broadcasts pause event on local pause', () => {
+      sync.onLocalPause();
+
+      expect(broadcast).toHaveBeenCalledTimes(1);
+      const sent = JSON.parse(broadcast.mock.calls[0][0]);
+      expect(sent.type).toBe('sync:pause');
+      expect(sent.data.type).toBe('pause');
+    });
+
+    it('debounces seek events', () => {
+      sync.onLocalSeek();
+      sync.onLocalSeek();
+      sync.onLocalSeek();
+
+      expect(broadcast).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(300);
+
+      expect(broadcast).toHaveBeenCalledTimes(1);
+      const sent = JSON.parse(broadcast.mock.calls[0][0]);
+      expect(sent.type).toBe('sync:seek');
+    });
+
+    it('clears debounce timer on destroy', () => {
+      sync.onLocalSeek();
+      sync.destroy();
+
+      vi.advanceTimersByTime(1000);
+      expect(broadcast).not.toHaveBeenCalled();
+    });
+
+    it('ignores handleRemote events (host does not take sync commands)', () => {
+      sync.handleRemote({
+        type: 'play',
+        currentTime: 50,
+        timestamp: Date.now(),
+        senderId: 'user-2',
+      });
+
+      expect(play).not.toHaveBeenCalled();
+      expect(seekTo).not.toHaveBeenCalled();
     });
   });
 
-  it('broadcasts pause event on local pause', () => {
-    sync.onLocalPause();
+  // ── Guest receive ──────────────────────────────
 
-    expect(signaling.send).toHaveBeenCalledWith('sync:pause', {
-      type: 'pause',
-      currentTime: 42.5,
-      timestamp: expect.any(Number),
-      senderId: 'user-1',
-    });
-  });
+  describe('Guest', () => {
+    let sync: PlaybackSync;
 
-  it('debounces seek events', () => {
-    sync.onLocalSeek();
-    sync.onLocalSeek();
-    sync.onLocalSeek();
-
-    // Should not have sent yet
-    expect(signaling.send).not.toHaveBeenCalled();
-
-    // Advance past debounce
-    vi.advanceTimersByTime(300);
-
-    // Should send exactly once
-    expect(signaling.send).toHaveBeenCalledTimes(1);
-    expect(signaling.send).toHaveBeenCalledWith(
-      'sync:seek',
-      expect.objectContaining({ type: 'seek' }),
-    );
-  });
-
-  // ── Remote events ─────────────────────────────
-
-  it('applies remote play and corrects drift', () => {
-    getTime.mockReturnValue(40.0); // local time: 40.0, remote: 42.5, drift = 2.5 > 1.5
-
-    signaling._trigger('sync:play', {
-      type: 'play',
-      currentTime: 42.5,
-      timestamp: Date.now(),
-      senderId: 'user-2',
+    beforeEach(() => {
+      sync = new PlaybackSync(broadcast, 'user-2', false, getTime, seekTo, play, pause);
     });
 
-    expect(seekTo).toHaveBeenCalledWith(42.5); // drift correction
-    expect(play).toHaveBeenCalled();
-  });
-
-  it('applies remote pause without drift correction if within threshold', () => {
-    getTime.mockReturnValue(42.0); // drift = 0.5 < 1.5
-
-    signaling._trigger('sync:pause', {
-      type: 'pause',
-      currentTime: 42.5,
-      timestamp: Date.now(),
-      senderId: 'user-2',
+    afterEach(() => {
+      sync.destroy();
     });
 
-    expect(seekTo).not.toHaveBeenCalled(); // no correction needed
-    expect(pause).toHaveBeenCalled();
-  });
-
-  it('applies remote seek directly', () => {
-    signaling._trigger('sync:seek', {
-      type: 'seek',
-      currentTime: 120.0,
-      timestamp: Date.now(),
-      senderId: 'user-2',
+    it('does NOT broadcast on local play (guest cannot control)', () => {
+      sync.onLocalPlay();
+      expect(broadcast).not.toHaveBeenCalled();
     });
 
-    expect(seekTo).toHaveBeenCalledWith(120.0);
-  });
-
-  it('ignores events from self', () => {
-    signaling._trigger('sync:play', {
-      type: 'play',
-      currentTime: 42.5,
-      timestamp: Date.now(),
-      senderId: 'user-1', // same as local user
+    it('does NOT broadcast on local pause', () => {
+      sync.onLocalPause();
+      expect(broadcast).not.toHaveBeenCalled();
     });
 
-    expect(play).not.toHaveBeenCalled();
-    expect(seekTo).not.toHaveBeenCalled();
-  });
+    it('does NOT broadcast on local seek', () => {
+      sync.onLocalSeek();
+      vi.advanceTimersByTime(300);
+      expect(broadcast).not.toHaveBeenCalled();
+    });
 
-  // ── Cleanup ───────────────────────────────────
+    it('applies remote play and corrects drift', () => {
+      getTime.mockReturnValue(40.0); // drift = ~2.5 > 1.5
 
-  it('clears debounce timer on destroy', () => {
-    sync.onLocalSeek();
-    sync.destroy();
+      sync.handleRemote({
+        type: 'play',
+        currentTime: 42.5,
+        timestamp: Date.now(),
+        senderId: 'user-1',
+      });
 
-    vi.advanceTimersByTime(1000);
-    expect(signaling.send).not.toHaveBeenCalled();
+      expect(seekTo).toHaveBeenCalled(); // drift correction
+      expect(play).toHaveBeenCalled();
+    });
+
+    it('applies remote pause without drift correction if within threshold', () => {
+      getTime.mockReturnValue(42.0); // drift = 0.5 < 1.5
+
+      sync.handleRemote({
+        type: 'pause',
+        currentTime: 42.5,
+        timestamp: Date.now(),
+        senderId: 'user-1',
+      });
+
+      expect(seekTo).not.toHaveBeenCalled();
+      expect(pause).toHaveBeenCalled();
+    });
+
+    it('applies remote seek directly', () => {
+      sync.handleRemote({
+        type: 'seek',
+        currentTime: 120.0,
+        timestamp: Date.now(),
+        senderId: 'user-1',
+      });
+
+      expect(seekTo).toHaveBeenCalledWith(120.0);
+    });
+
+    it('ignores events from self', () => {
+      sync.handleRemote({
+        type: 'play',
+        currentTime: 42.5,
+        timestamp: Date.now(),
+        senderId: 'user-2', // same as local user
+      });
+
+      expect(play).not.toHaveBeenCalled();
+      expect(seekTo).not.toHaveBeenCalled();
+    });
   });
 });

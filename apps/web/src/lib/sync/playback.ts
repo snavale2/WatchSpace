@@ -1,60 +1,101 @@
 // ──────────────────────────────────────────────
 // WatchSpace — Synchronised Playback Controller
 // ──────────────────────────────────────────────
+//
+// Sends play/pause/seek events over WebRTC data channels.
+// Only the host can broadcast; guests apply incoming events.
+// ──────────────────────────────────────────────
 
-import { SYNC_THRESHOLDS, WS_EVENTS, type SyncEvent, type SyncEventType } from '@watchspace/shared';
-import type { SignalingClient } from '$webrtc/signaling';
+import { SYNC_THRESHOLDS, type SyncEvent, type SyncEventType } from '@watchspace/shared';
 
 /**
  * PlaybackSync keeps all peers' video players in sync.
  *
- * It listens for local player events and broadcasts them,
- * and applies incoming sync events to the local player.
+ * - **Host**: captures local player events and broadcasts them to all peers.
+ * - **Guest**: receives sync events and applies them to the local player.
  */
 export class PlaybackSync {
   private seekDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private suppressLocal = false;
 
   constructor(
-    private signaling: SignalingClient,
+    private broadcast: (data: string) => void,
     private userId: string,
+    private isHost: boolean,
     private getTime: () => number,
     private seekTo: (t: number) => void,
-    private play: () => void,
-    private pause: () => void,
-  ) {
-    // Listen for incoming sync events
-    signaling.on(WS_EVENTS.SYNC_PLAY, (msg) => this.handleRemote(msg.data as SyncEvent));
-    signaling.on(WS_EVENTS.SYNC_PAUSE, (msg) => this.handleRemote(msg.data as SyncEvent));
-    signaling.on(WS_EVENTS.SYNC_SEEK, (msg) => this.handleRemote(msg.data as SyncEvent));
-  }
+    private playFn: () => void,
+    private pauseFn: () => void,
+  ) {}
 
   /** Call when the local user plays the video */
   onLocalPlay() {
-    this.broadcast('play');
+    if (!this.isHost || this.suppressLocal) return;
+    this.broadcastEvent('play');
   }
 
   /** Call when the local user pauses the video */
   onLocalPause() {
-    this.broadcast('pause');
+    if (!this.isHost || this.suppressLocal) return;
+    this.broadcastEvent('pause');
   }
 
   /** Call when the local user seeks */
   onLocalSeek() {
+    if (!this.isHost || this.suppressLocal) return;
     // Debounce rapid seeks
     if (this.seekDebounceTimer) clearTimeout(this.seekDebounceTimer);
     this.seekDebounceTimer = setTimeout(() => {
-      this.broadcast('seek');
+      this.broadcastEvent('seek');
     }, SYNC_THRESHOLDS.SEEK_DEBOUNCE_MS);
   }
 
-  /** Destroy listeners */
+  /**
+   * Handle an incoming sync event from a remote peer (via data channel).
+   * Only guests should apply these events.
+   */
+  handleRemote(event: SyncEvent) {
+    if (event.senderId === this.userId) return;
+    if (this.isHost) return; // Hosts don't take sync commands
+
+    // Suppress local event callbacks while applying remote state
+    this.suppressLocal = true;
+
+    try {
+      // Compensate for network delay
+      const networkDelay = (Date.now() - event.timestamp) / 1000; // seconds
+
+      switch (event.type) {
+        case 'play': {
+          const adjustedTime = event.currentTime + networkDelay;
+          this.correctDrift(adjustedTime);
+          this.playFn();
+          break;
+        }
+        case 'pause':
+          this.correctDrift(event.currentTime);
+          this.pauseFn();
+          break;
+        case 'seek':
+          this.seekTo(event.currentTime);
+          break;
+      }
+    } finally {
+      // Re-enable local events after a tick
+      setTimeout(() => {
+        this.suppressLocal = false;
+      }, 50);
+    }
+  }
+
+  /** Destroy — cancel pending timers */
   destroy() {
     if (this.seekDebounceTimer) clearTimeout(this.seekDebounceTimer);
   }
 
   // ── Private ────────────────────────────────
 
-  private broadcast(type: SyncEventType) {
+  private broadcastEvent(type: SyncEventType) {
     const event: SyncEvent = {
       type,
       currentTime: this.getTime(),
@@ -62,25 +103,7 @@ export class PlaybackSync {
       senderId: this.userId,
     };
 
-    this.signaling.send(`sync:${type}`, event);
-  }
-
-  private handleRemote(event: SyncEvent) {
-    if (event.senderId === this.userId) return;
-
-    switch (event.type) {
-      case 'play':
-        this.correctDrift(event.currentTime);
-        this.play();
-        break;
-      case 'pause':
-        this.correctDrift(event.currentTime);
-        this.pause();
-        break;
-      case 'seek':
-        this.seekTo(event.currentTime);
-        break;
-    }
+    this.broadcast(JSON.stringify({ type: `sync:${type}`, data: event }));
   }
 
   private correctDrift(remoteTime: number) {
