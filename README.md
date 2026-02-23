@@ -14,6 +14,8 @@ P2P watch party app with synchronized playback, video sharing, live chat, and ca
 [![WebRTC](https://img.shields.io/badge/WebRTC-333333?style=for-the-badge&logo=webrtc&logoColor=white)](https://webrtc.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+[![Coverage](https://img.shields.io/badge/coverage-80%25_target-brightgreen?style=for-the-badge)](apps/web/vitest.config.ts)
+[![Tests](https://img.shields.io/badge/tests-vitest_%7C_bun_%7C_playwright-blue?style=for-the-badge)](apps/web/tests/)
 
 </div>
 
@@ -23,12 +25,12 @@ P2P watch party app with synchronized playback, video sharing, live chat, and ca
 
 <!-- Replace with actual screenshots after UI is built -->
 
-| Landing Page | Room Page |
-|:---:|:---:|
+|                 Landing Page                  |                Room Page                |
+| :-------------------------------------------: | :-------------------------------------: |
 | ![Landing Page](docs/screenshots/landing.png) | ![Room Page](docs/screenshots/room.png) |
 
-| Waiting Screen | Screen Sharing |
-|:---:|:---:|
+|              Waiting Screen              |                  Screen Sharing                   |
+| :--------------------------------------: | :-----------------------------------------------: |
 | ![Waiting](docs/screenshots/waiting.png) | ![Screen Share](docs/screenshots/screenshare.png) |
 
 ---
@@ -47,15 +49,15 @@ P2P watch party app with synchronized playback, video sharing, live chat, and ca
 
 ## 🏗️ Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | [SvelteKit](https://kit.svelte.dev/) + [TailwindCSS](https://tailwindcss.com/) + [Video.js](https://videojs.com/) |
-| Backend | [Bun](https://bun.sh/) + [Elysia.js](https://elysiajs.com/) |
-| State | [Upstash Redis](https://upstash.com/) (serverless) |
-| P2P | [WebRTC](https://webrtc.org/) via [simple-peer](https://github.com/feross/simple-peer) + MediaSource API |
-| TURN | [Metered.ca](https://www.metered.ca/) |
-| Monorepo | [Turborepo](https://turbo.build/) |
-| Deployment | [Vercel](https://vercel.com/) (frontend) + [Fly.io](https://fly.io/) (backend) |
+| Layer      | Technology                                                                                                        |
+| ---------- | ----------------------------------------------------------------------------------------------------------------- |
+| Frontend   | [SvelteKit](https://kit.svelte.dev/) + [TailwindCSS](https://tailwindcss.com/) + [Video.js](https://videojs.com/) |
+| Backend    | [Bun](https://bun.sh/) + [Elysia.js](https://elysiajs.com/)                                                       |
+| State      | [Upstash Redis](https://upstash.com/) (serverless)                                                                |
+| P2P        | [WebRTC](https://webrtc.org/) via [simple-peer](https://github.com/feross/simple-peer) + MediaSource API          |
+| TURN       | [Metered.ca](https://www.metered.ca/)                                                                             |
+| Monorepo   | [Turborepo](https://turbo.build/)                                                                                 |
+| Deployment | [Vercel](https://vercel.com/) (frontend) + [Fly.io](https://fly.io/) (backend)                                    |
 
 ---
 
@@ -122,7 +124,8 @@ cp apps/server/.env.example apps/server/.env
 cp apps/web/.env.example apps/web/.env
 ```
 
-Edit the `.env` files with your credentials (see [Environment Variables](#-environment-variables) below).
+Edit the `.env` files with your credentials (see [Environment Variables](#-environment-variables)
+below).
 
 ### 4. Start development servers
 
@@ -132,10 +135,10 @@ bun run dev
 
 This launches both apps concurrently via Turborepo:
 
-| Service | URL |
-|---------|-----|
+| Service  | URL                     |
+| -------- | ----------------------- |
 | Frontend | `http://localhost:5173` |
-| Server | `http://localhost:3001` |
+| Server   | `http://localhost:3001` |
 
 ---
 
@@ -143,20 +146,20 @@ This launches both apps concurrently via Turborepo:
 
 ### `apps/server/.env`
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `PORT` | No | Server port (default: `3001`) |
-| `FRONTEND_URL` | No | CORS origin (default: `http://localhost:5173`) |
-| `UPSTASH_REDIS_REST_URL` | **Yes** | Upstash Redis REST endpoint |
-| `UPSTASH_REDIS_REST_TOKEN` | **Yes** | Upstash Redis REST token |
+| Variable                   | Required | Description                                    |
+| -------------------------- | -------- | ---------------------------------------------- |
+| `PORT`                     | No       | Server port (default: `3001`)                  |
+| `FRONTEND_URL`             | No       | CORS origin (default: `http://localhost:5173`) |
+| `UPSTASH_REDIS_REST_URL`   | **Yes**  | Upstash Redis REST endpoint                    |
+| `UPSTASH_REDIS_REST_TOKEN` | **Yes**  | Upstash Redis REST token                       |
 
 ### `apps/web/.env`
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `VITE_API_URL` | No | Server API base URL (default: `http://localhost:3001/api`) |
-| `VITE_SIGNALING_URL` | No | WebSocket URL (default: `ws://localhost:3001/ws`) |
-| `VITE_METERED_API_KEY` | No | Metered.ca API key for TURN servers |
+| Variable               | Required | Description                                                |
+| ---------------------- | -------- | ---------------------------------------------------------- |
+| `VITE_API_URL`         | No       | Server API base URL (default: `http://localhost:3001/api`) |
+| `VITE_SIGNALING_URL`   | No       | WebSocket URL (default: `ws://localhost:3001/ws`)          |
+| `VITE_METERED_API_KEY` | No       | Metered.ca API key for TURN servers                        |
 
 ---
 
@@ -194,22 +197,37 @@ fly deploy
 
 ## 🧪 Testing
 
+Coverage target: **80% minimum** on statements, branches, functions, and lines.
+
 ```bash
 # Run all tests
 bun run test
 
-# Run frontend tests only
+# Frontend unit tests (Vitest)
 bun run test --filter=@watchspace/web
 
-# Run backend tests only
+# Frontend unit tests with coverage
+bun run test --filter=@watchspace/web -- --coverage
+
+# Frontend E2E tests (Playwright)
+cd apps/web && bun run test:e2e
+
+# Backend tests (Bun test runner)
 bun run test --filter=@watchspace/server
 ```
+
+| Layer         | Runner         | Tests                                        |
+| ------------- | -------------- | -------------------------------------------- |
+| Frontend Unit | Vitest + jsdom | UUID, sync logic, file chunking, stores      |
+| Frontend E2E  | Playwright     | Multi-browser room join, chat, playback sync |
+| Backend Unit  | Bun test       | Room manager, Redis ops, WebSocket signaling |
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read the [Contributing Guide](docs/contributing.md) for details on:
+Contributions are welcome! Please read the [Contributing Guide](docs/contributing.md) for details
+on:
 
 - Setting up the development environment
 - Code style and formatting
@@ -220,12 +238,12 @@ Contributions are welcome! Please read the [Contributing Guide](docs/contributin
 
 ## 📝 Branch Strategy
 
-| Branch | Purpose |
-|--------|---------|
-| `main` | Production — always deployable |
-| `dev` | Development integration branch |
+| Branch           | Purpose                          |
+| ---------------- | -------------------------------- |
+| `main`           | Production — always deployable   |
+| `dev`            | Development integration branch   |
 | `feature/<name>` | New features (branch from `dev`) |
-| `fix/<name>` | Bug fixes (branch from `dev`) |
+| `fix/<name>`     | Bug fixes (branch from `dev`)    |
 
 ```
 main ◄── (merge when ready for release)
