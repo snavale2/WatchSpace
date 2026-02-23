@@ -1,101 +1,30 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Elysia } from 'elysia';
 import { WS_EVENTS } from '@watchspace/shared';
+import { RoomManager } from '../src/rooms/manager';
+import { InMemoryRedis } from '../src/redis/client';
+import { createSignalingRoutes } from '../src/routes/signaling';
 
 describe('WebSocket Signaling', () => {
-  let app: Elysia;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let app: any;
   let baseUrl: string;
+  let redis: InMemoryRedis;
+  let roomManager: RoomManager;
 
-  beforeEach(async () => {
-    // Create a minimal test server with signaling logic inlined
-    // (avoids importing the module which has side-effect initialization)
-    const roomClients = new Map<string, Map<string, any>>();
+  beforeEach(() => {
+    redis = new InMemoryRedis();
+    roomManager = new RoomManager(redis);
 
-    app = new Elysia()
-      .ws('/ws', {
-        open(ws) {
-          const userId = ws.data.query?.userId as string;
-          const roomId = ws.data.query?.roomId as string;
+    app = new Elysia().use(createSignalingRoutes(roomManager)).listen(0);
 
-          if (!userId || !roomId) {
-            ws.send(JSON.stringify({ event: WS_EVENTS.ERROR, data: 'Missing userId or roomId' }));
-            ws.close();
-            return;
-          }
-
-          if (!roomClients.has(roomId)) {
-            roomClients.set(roomId, new Map());
-          }
-          roomClients.get(roomId)!.set(userId, ws);
-
-          // Notify others
-          const room = roomClients.get(roomId)!;
-          const payload = JSON.stringify({
-            event: WS_EVENTS.ROOM_PEER_JOINED,
-            data: { userId },
-          });
-          for (const [peerId, peerWs] of room) {
-            if (peerId !== userId) peerWs.send(payload);
-          }
-        },
-        message(ws, message) {
-          const msg = typeof message === 'string' ? JSON.parse(message) : message;
-          const { event, data } = msg;
-          const roomId = data?.roomId;
-          const senderId = data?.senderId;
-
-          if (!roomId) return;
-
-          const room = roomClients.get(roomId);
-          if (!room) return;
-
-          if ([WS_EVENTS.SYNC_PLAY, WS_EVENTS.SYNC_PAUSE, WS_EVENTS.SYNC_SEEK].includes(event)) {
-            const payload = JSON.stringify(msg);
-            for (const [peerId, peerWs] of room) {
-              if (peerId !== senderId) peerWs.send(payload);
-            }
-          } else if (
-            [
-              WS_EVENTS.SIGNAL_OFFER,
-              WS_EVENTS.SIGNAL_ANSWER,
-              WS_EVENTS.SIGNAL_ICE_CANDIDATE,
-            ].includes(event)
-          ) {
-            const target = room.get(data.targetId);
-            if (target) target.send(JSON.stringify(msg));
-          }
-        },
-        close(ws) {
-          const userId = ws.data.query?.userId as string;
-          const roomId = ws.data.query?.roomId as string;
-
-          if (roomId && userId) {
-            const room = roomClients.get(roomId);
-            if (room) {
-              room.delete(userId);
-              if (room.size === 0) roomClients.delete(roomId);
-            }
-
-            const remaining = roomClients.get(roomId);
-            if (remaining) {
-              const payload = JSON.stringify({
-                event: WS_EVENTS.ROOM_PEER_LEFT,
-                data: { userId },
-              });
-              for (const [, peerWs] of remaining) {
-                peerWs.send(payload);
-              }
-            }
-          }
-        },
-      })
-      .listen(0);
-
-    baseUrl = `ws://localhost:${app.server!.port}`;
+    const port = app.server?.port ?? 0;
+    baseUrl = `ws://localhost:${port}`;
   });
 
   afterEach(() => {
     app.stop();
+    redis.clear();
   });
 
   // ── Helpers ──────────────────────────────────
@@ -108,6 +37,7 @@ describe('WebSocket Signaling', () => {
     });
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function waitForMessage(ws: WebSocket): Promise<any> {
     return new Promise((resolve) => {
       ws.onmessage = (e) => resolve(JSON.parse(e.data.toString()));
@@ -122,13 +52,24 @@ describe('WebSocket Signaling', () => {
     ws.close();
   });
 
+  it('sends peer list on connect', async () => {
+    const ws1 = await connectWs('user-1', 'room-1');
+
+    // First message should be the peer list (empty since user-1 is first)
+    const peerListMsg = await waitForMessage(ws1);
+    expect(peerListMsg.event).toBe(WS_EVENTS.ROOM_PEER_LIST);
+
+    ws1.close();
+  });
+
   it('notifies existing peers when a new peer joins', async () => {
     const ws1 = await connectWs('user-1', 'room-1');
-    const messagePromise = waitForMessage(ws1);
+    await waitForMessage(ws1); // peer list
 
+    const joinPromise = waitForMessage(ws1);
     const ws2 = await connectWs('user-2', 'room-1');
-    const msg = await messagePromise;
 
+    const msg = await joinPromise;
     expect(msg.event).toBe(WS_EVENTS.ROOM_PEER_JOINED);
     expect(msg.data.userId).toBe('user-2');
 
@@ -138,12 +79,12 @@ describe('WebSocket Signaling', () => {
 
   it('notifies remaining peers when a peer leaves', async () => {
     const ws1 = await connectWs('user-1', 'room-1');
+    await waitForMessage(ws1); // peer list
+
     const ws2 = await connectWs('user-2', 'room-1');
+    await waitForMessage(ws1); // join notification
+    await waitForMessage(ws2); // peer list for ws2
 
-    // Wait for join notification
-    await waitForMessage(ws1);
-
-    // Set up leave listener
     const leavePromise = waitForMessage(ws1);
     ws2.close();
     const msg = await leavePromise;
@@ -156,12 +97,12 @@ describe('WebSocket Signaling', () => {
 
   it('broadcasts sync events to other peers in the room', async () => {
     const ws1 = await connectWs('user-1', 'room-1');
+    await waitForMessage(ws1); // peer list
+
     const ws2 = await connectWs('user-2', 'room-1');
+    await waitForMessage(ws1); // join notification
+    await waitForMessage(ws2); // peer list
 
-    // Wait for join notification
-    await waitForMessage(ws1);
-
-    // Send sync:play from user-1
     const syncPromise = waitForMessage(ws2);
     ws1.send(
       JSON.stringify({
@@ -180,14 +121,17 @@ describe('WebSocket Signaling', () => {
 
   it('forwards signal offers to the target peer only', async () => {
     const ws1 = await connectWs('user-1', 'room-1');
+    await waitForMessage(ws1); // peer list
+
     const ws2 = await connectWs('user-2', 'room-1');
+    await waitForMessage(ws1); // join
+    await waitForMessage(ws2); // peer list
+
     const ws3 = await connectWs('user-3', 'room-1');
+    await waitForMessage(ws1); // join user-3
+    await waitForMessage(ws2); // join user-3
+    await waitForMessage(ws3); // peer list
 
-    // Wait for join notifications
-    await waitForMessage(ws1);
-    await waitForMessage(ws1);
-
-    // Send offer from user-1 to user-2
     const offerPromise = waitForMessage(ws2);
     ws1.send(
       JSON.stringify({
@@ -212,20 +156,24 @@ describe('WebSocket Signaling', () => {
 
   it('isolates rooms from each other', async () => {
     const wsRoom1 = await connectWs('user-1', 'room-1');
-    const wsRoom2 = await connectWs('user-2', 'room-2');
+    await waitForMessage(wsRoom1); // peer list
 
-    // user-2 in room-2 should NOT receive a join notification for user-3 in room-1
+    const wsRoom2 = await connectWs('user-2', 'room-2');
+    await waitForMessage(wsRoom2); // peer list
+
     let received = false;
     wsRoom2.onmessage = () => {
       received = true;
     };
 
-    await connectWs('user-3', 'room-1');
+    const ws3 = await connectWs('user-3', 'room-1');
+    await waitForMessage(ws3); // peer list
     await new Promise((r) => setTimeout(r, 100));
 
     expect(received).toBe(false);
 
     wsRoom1.close();
     wsRoom2.close();
+    ws3.close();
   });
 });

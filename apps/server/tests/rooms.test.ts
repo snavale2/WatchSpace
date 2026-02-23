@@ -1,28 +1,15 @@
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { RoomManager } from '../src/rooms/manager';
+import { InMemoryRedis } from '../src/redis/client';
 import { ROOM_LIMITS } from '@watchspace/shared';
-
-// ── Mock Redis ──────────────────────────────────
-const mockStore = new Map<string, string>();
-
-mock.module('../src/redis/client', () => ({
-  redis: {
-    get: async (key: string) => mockStore.get(key) ?? null,
-    set: async (key: string, value: string) => {
-      mockStore.set(key, value);
-    },
-    del: async (key: string) => {
-      mockStore.delete(key);
-    },
-  },
-}));
 
 describe('RoomManager', () => {
   let manager: RoomManager;
+  let redis: InMemoryRedis;
 
   beforeEach(() => {
-    mockStore.clear();
-    manager = new RoomManager();
+    redis = new InMemoryRedis();
+    manager = new RoomManager(redis);
   });
 
   // ── createRoom ────────────────────────────────
@@ -46,10 +33,10 @@ describe('RoomManager', () => {
 
     it('persists room to redis', async () => {
       const room = await manager.createRoom('host-1');
-      const stored = mockStore.get(`room:${room.id}`);
+      const fetched = await manager.getRoom(room.id);
 
-      expect(stored).toBeDefined();
-      expect(JSON.parse(stored!).hostId).toBe('host-1');
+      expect(fetched).not.toBeNull();
+      expect(fetched!.hostId).toBe('host-1');
     });
 
     it('generates room ids with only safe characters (no ambiguous chars)', async () => {
@@ -77,6 +64,34 @@ describe('RoomManager', () => {
     });
   });
 
+  // ── roomExists / isRoomFull ───────────────────
+
+  describe('roomExists', () => {
+    it('returns false for non-existent room', async () => {
+      expect(await manager.roomExists('nope')).toBe(false);
+    });
+
+    it('returns true for existing room', async () => {
+      const room = await manager.createRoom('host-1');
+      expect(await manager.roomExists(room.id)).toBe(true);
+    });
+  });
+
+  describe('isRoomFull', () => {
+    it('returns false for room with space', async () => {
+      const room = await manager.createRoom('host-1');
+      expect(await manager.isRoomFull(room.id)).toBe(false);
+    });
+
+    it('returns true when room is at max capacity', async () => {
+      const room = await manager.createRoom('host-1');
+      for (let i = 2; i <= ROOM_LIMITS.MAX_PEERS; i++) {
+        await manager.joinRoom(room.id, `peer-${i}`);
+      }
+      expect(await manager.isRoomFull(room.id)).toBe(true);
+    });
+  });
+
   // ── joinRoom ──────────────────────────────────
 
   describe('joinRoom', () => {
@@ -97,7 +112,6 @@ describe('RoomManager', () => {
     it('throws when room is full', async () => {
       const room = await manager.createRoom('host-1');
 
-      // Fill the room to max
       for (let i = 2; i <= ROOM_LIMITS.MAX_PEERS; i++) {
         await manager.joinRoom(room.id, `peer-${i}`);
       }
@@ -141,6 +155,22 @@ describe('RoomManager', () => {
 
     it('throws when room does not exist', async () => {
       expect(manager.leaveRoom('nonexistent', 'peer-1')).rejects.toThrow('Room not found');
+    });
+  });
+
+  // ── getRoomPeers ──────────────────────────────
+
+  describe('getRoomPeers', () => {
+    it('returns empty array for non-existent room', async () => {
+      expect(await manager.getRoomPeers('nope')).toEqual([]);
+    });
+
+    it('returns peer list', async () => {
+      const room = await manager.createRoom('host-1');
+      await manager.joinRoom(room.id, 'peer-2');
+      const peers = await manager.getRoomPeers(room.id);
+
+      expect(peers).toEqual(['host-1', 'peer-2']);
     });
   });
 });
