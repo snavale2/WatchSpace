@@ -3,17 +3,17 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
-    preprocess: vitePreprocess(),
-    kit: {
-        adapter: adapter(),
-        alias: {
-            $components: 'src/lib/components',
-            $stores: 'src/lib/stores',
-            $utils: 'src/lib/utils',
-            $webrtc: 'src/lib/webrtc',
-            $sync: 'src/lib/sync',
-        },
+  preprocess: vitePreprocess(),
+  kit: {
+    adapter: adapter(),
+    alias: {
+      $components: 'src/lib/components',
+      $stores: 'src/lib/stores',
+      $utils: 'src/lib/utils',
+      $webrtc: 'src/lib/webrtc',
+      $sync: 'src/lib/sync',
     },
+  },
 };
 
 export default config;

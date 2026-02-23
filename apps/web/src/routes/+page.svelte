@@ -25,12 +25,17 @@
 
 <svelte:head>
   <title>WatchSpace — Watch Together</title>
-  <meta name="description" content="Create a watch party and enjoy videos with friends in real-time." />
+  <meta
+    name="description"
+    content="Create a watch party and enjoy videos with friends in real-time."
+  />
 </svelte:head>
 
 <main class="min-h-screen flex flex-col items-center justify-center px-4">
   <div class="text-center animate-fade-in">
-    <h1 class="text-5xl font-bold bg-gradient-to-r from-brand-400 to-brand-600 bg-clip-text text-transparent mb-4">
+    <h1
+      class="text-5xl font-bold bg-gradient-to-r from-brand-400 to-brand-600 bg-clip-text text-transparent mb-4"
+    >
       WatchSpace
     </h1>
     <p class="text-lg text-gray-400 mb-10 max-w-md mx-auto">
