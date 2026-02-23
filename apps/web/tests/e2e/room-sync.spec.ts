@@ -1,6 +1,10 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Multi-Browser Room Sync', () => {
+// These tests require the backend API server to be running (room creation via REST).
+// Skip in CI where only the Vite frontend dev server is available.
+const describeOrSkip = process.env['CI'] ? test.describe.skip : test.describe;
+
+describeOrSkip('Multi-Browser Room Sync', () => {
   test('two browsers can join the same room', async ({ browser }) => {
     const context1 = await browser.newContext();
     const context2 = await browser.newContext();
