@@ -22,6 +22,16 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json-summary', 'lcov'],
       include: ['src/lib/utils/**', 'src/lib/sync/**', 'src/lib/webrtc/**', 'src/lib/stores/**'],
+      exclude: [
+        // Browser/WebRTC-dependent — tested via E2E instead
+        'src/lib/webrtc/PeerManager.ts',
+        'src/lib/webrtc/peer.ts',
+        'src/lib/webrtc/signaling.ts',
+        'src/lib/webrtc/iceConfig.ts',
+        'src/lib/utils/mediasource.ts',
+        'src/lib/stores/user.ts',
+        'src/lib/stores/connection.ts',
+      ],
       thresholds: {
         statements: 80,
         branches: 80,
