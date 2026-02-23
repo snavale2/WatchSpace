@@ -61,6 +61,13 @@ export const WS_CLOSE_CODES = {
   INVALID_MESSAGE: 4004,
 } as const;
 
+// ── ICE Servers (STUN only) ────────────────────
+export const ICE_SERVERS = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' },
+  { urls: 'stun:stun2.l.google.com:19302' },
+] as const;
+
 // ── Sync Thresholds ────────────────────────────
 export const SYNC_THRESHOLDS = {
   /** Max drift (seconds) before forcing a re-sync */
