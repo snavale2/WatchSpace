@@ -1,7 +1,6 @@
 <script lang="ts">
   import { chatStore, sendChatMessage } from '$stores/chat';
   import { userStore } from '$stores/user';
-  import type { ChatMessage } from '@watchspace/shared';
 
   let messageInput = '';
 

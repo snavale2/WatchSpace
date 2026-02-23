@@ -7,44 +7,45 @@
  * video chunks received via WebRTC data channels.
  */
 export function createMediaSourceStream(mimeType: string): {
-    url: string;
-    appendChunk: (data: ArrayBuffer) => void;
-    close: () => void;
+  url: string;
+  appendChunk: (data: ArrayBuffer) => void;
+  close: () => void;
 } {
-    const mediaSource = new MediaSource();
-    const url = URL.createObjectURL(mediaSource);
+  const mediaSource = new MediaSource();
+  const url = URL.createObjectURL(mediaSource);
 
-    let sourceBuffer: SourceBuffer | null = null;
-    const pendingChunks: ArrayBuffer[] = [];
+  let sourceBuffer: SourceBuffer | null = null;
+  const pendingChunks: ArrayBuffer[] = [];
 
-    mediaSource.addEventListener('sourceopen', () => {
-        try {
-            sourceBuffer = mediaSource.addSourceBuffer(mimeType);
+  mediaSource.addEventListener('sourceopen', () => {
+    try {
+      sourceBuffer = mediaSource.addSourceBuffer(mimeType);
 
-            sourceBuffer.addEventListener('updateend', () => {
-                if (pendingChunks.length > 0 && sourceBuffer && !sourceBuffer.updating) {
-                    sourceBuffer.appendBuffer(pendingChunks.shift()!);
-                }
-            });
-        } catch (err) {
-            console.error('[MediaSource] Failed to add source buffer:', err);
+      sourceBuffer.addEventListener('updateend', () => {
+        if (pendingChunks.length > 0 && sourceBuffer && !sourceBuffer.updating) {
+          const next = pendingChunks.shift();
+          if (next) sourceBuffer.appendBuffer(next);
         }
-    });
-
-    function appendChunk(data: ArrayBuffer) {
-        if (sourceBuffer && !sourceBuffer.updating) {
-            sourceBuffer.appendBuffer(data);
-        } else {
-            pendingChunks.push(data);
-        }
+      });
+    } catch (err) {
+      console.error('[MediaSource] Failed to add source buffer:', err);
     }
+  });
 
-    function close() {
-        if (mediaSource.readyState === 'open') {
-            mediaSource.endOfStream();
-        }
-        URL.revokeObjectURL(url);
+  function appendChunk(data: ArrayBuffer) {
+    if (sourceBuffer && !sourceBuffer.updating) {
+      sourceBuffer.appendBuffer(data);
+    } else {
+      pendingChunks.push(data);
     }
+  }
 
-    return { url, appendChunk, close };
+  function close() {
+    if (mediaSource.readyState === 'open') {
+      mediaSource.endOfStream();
+    }
+    URL.revokeObjectURL(url);
+  }
+
+  return { url, appendChunk, close };
 }

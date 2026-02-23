@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { roomStore } from '$stores/room';
-
   let cameraOn = false;
   let micOn = false;
 

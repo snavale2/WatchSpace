@@ -21,9 +21,9 @@
       playbackRates: [0.5, 1, 1.25, 1.5, 2],
     });
 
-    player.on('play', () => onPlay?.(player!.currentTime() ?? 0));
-    player.on('pause', () => onPause?.(player!.currentTime() ?? 0));
-    player.on('seeked', () => onSeek?.(player!.currentTime() ?? 0));
+    player.on('play', () => onPlay?.(player?.currentTime() ?? 0));
+    player.on('pause', () => onPause?.(player?.currentTime() ?? 0));
+    player.on('seeked', () => onSeek?.(player?.currentTime() ?? 0));
   });
 
   onDestroy(() => {
@@ -47,7 +47,6 @@
 </script>
 
 <div class="w-full h-full bg-black rounded-xl overflow-hidden">
-  <!-- svelte-ignore a11y-media-has-caption -->
   <video bind:this={videoElement} class="video-js vjs-big-play-centered" {src}>
     <track kind="captions" />
   </video>

@@ -4,10 +4,10 @@
   let screenStream: MediaStream | null = null;
   let videoElement: HTMLVideoElement;
 
-  async function startScreenShare() {
+  async function _startScreenShare() {
     try {
       screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { cursor: 'always' } as MediaTrackConstraints,
+        video: { cursor: 'always' } as Record<string, unknown>,
         audio: true,
       });
 
