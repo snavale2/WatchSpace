@@ -11,19 +11,27 @@
 import { WS_EVENTS, type WSMessage, type FileMetadata, type SyncEvent } from '@watchspace/shared';
 import type SimplePeer from 'simple-peer';
 import type { SignalingClient } from './signaling';
-import { createPeer, signalPeer, destroyPeer, type PeerConnection } from './peer';
+import {
+  createPeer,
+  signalPeer,
+  destroyPeer,
+  addStreamToPeer,
+  removeStreamFromPeer,
+  type PeerConnection,
+} from './peer';
 import { sendFile, FileReceiver } from './fileTransfer';
 import type { PlaybackSync } from '../sync/playback';
 import { connectionStore } from '../stores/connection';
 import { fileTransferStore } from '../stores/fileTransfer';
+import { peerStore } from '../stores/peers';
 
 export class PeerManager {
   private peers = new Map<string, PeerConnection>();
   private localStream?: MediaStream;
+  private screenStream?: MediaStream;
   private fileReceiver = new FileReceiver();
   private receivedVideoUrl: string | null = null;
   private playbackSync: PlaybackSync | null = null;
-  private onRemoteStreamCb: ((userId: string, stream: MediaStream) => void) | null = null;
 
   constructor(
     private signaling: SignalingClient,
@@ -33,13 +41,29 @@ export class PeerManager {
   }
 
   /** Provide a local media stream to share with peers */
-  setLocalStream(stream: MediaStream) {
+  setLocalStream(stream?: MediaStream) {
+    if (this.localStream) {
+      const ls = this.localStream;
+      this.peers.forEach((conn) => removeStreamFromPeer(conn, ls));
+    }
     this.localStream = stream;
+    if (this.localStream) {
+      const ls = this.localStream;
+      this.peers.forEach((conn) => addStreamToPeer(conn, ls));
+    }
   }
 
-  /** Set callback for when remote streams are received */
-  onRemoteStream(cb: (userId: string, stream: MediaStream) => void) {
-    this.onRemoteStreamCb = cb;
+  /** Provide a screen share stream to share with peers */
+  setScreenStream(stream?: MediaStream) {
+    if (this.screenStream) {
+      const ss = this.screenStream;
+      this.peers.forEach((conn) => removeStreamFromPeer(conn, ss));
+    }
+    this.screenStream = stream;
+    if (this.screenStream) {
+      const ss = this.screenStream;
+      this.peers.forEach((conn) => addStreamToPeer(conn, ss));
+    }
   }
 
   /** Attach a PlaybackSync instance to receive sync events */
@@ -52,32 +76,6 @@ export class PeerManager {
     for (const conn of this.peers.values()) {
       if (conn.connected && !conn.peer.destroyed) {
         conn.peer.send(data);
-      }
-    }
-  }
-
-  /** Add a media stream to all existing peer connections */
-  addStreamToAll(stream: MediaStream) {
-    for (const conn of this.peers.values()) {
-      if (!conn.peer.destroyed) {
-        try {
-          conn.peer.addStream(stream);
-        } catch (err) {
-          console.warn(`[PeerManager] Failed to add stream to ${conn.userId}:`, err);
-        }
-      }
-    }
-  }
-
-  /** Remove a media stream from all existing peer connections */
-  removeStreamFromAll(stream: MediaStream) {
-    for (const conn of this.peers.values()) {
-      if (!conn.peer.destroyed) {
-        try {
-          conn.peer.removeStream(stream);
-        } catch (err) {
-          console.warn(`[PeerManager] Failed to remove stream from ${conn.userId}:`, err);
-        }
       }
     }
   }
@@ -302,7 +300,15 @@ export class PeerManager {
       },
       onStream: (stream) => {
         console.log(`[PeerManager] Received stream from ${remoteUserId}`);
-        this.onRemoteStreamCb?.(remoteUserId, stream);
+
+        // We look at the video track's custom surface setting to guess if it's a screen share.
+        // Screen shares usually have 'displaySurface' or similar in their constraints, but we can't reliably get that here.
+        // For simplicity in this demo, we'll try to infer from the track contentHints or label, but typically you'd send a data message.
+        // A simpler robust way: we assume the stream is just attached, and let the components figure out if they want to render it.
+        // Let's just update the peerStore with this stream.
+
+        // Update the peer in the store with the newly received stream
+        peerStore.updatePeer(remoteUserId, { stream });
       },
       onData: (data) => {
         this.handleDataMessage(data);

@@ -94,3 +94,21 @@ export function destroyPeer(conn: PeerConnection) {
     conn.peer.destroy();
   }
 }
+
+/**
+ * Safely add a stream to a peer connection.
+ * If tracks are already present, this might require renegotiation depending on the state,
+ * but simple-peer handles `addStream` natively.
+ */
+export function addStreamToPeer(conn: PeerConnection, stream: MediaStream) {
+  if (!conn.peer.destroyed && conn.connected) {
+    conn.peer.addStream(stream);
+  }
+}
+
+/** Safely remove a stream from a peer connection */
+export function removeStreamFromPeer(conn: PeerConnection, stream: MediaStream) {
+  if (!conn.peer.destroyed && conn.connected) {
+    conn.peer.removeStream(stream);
+  }
+}

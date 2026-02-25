@@ -12,7 +12,6 @@
   import { peerStore } from '$stores/peers';
   import { connectionStore } from '$stores/connection';
   import { fileTransferStore } from '$stores/fileTransfer';
-  import { mediaStore } from '$stores/media';
   import { SignalingClient } from '$webrtc/signaling';
   import { PeerManager } from '$webrtc/PeerManager';
   import { PlaybackSync } from '$sync/playback';
@@ -25,19 +24,7 @@
   let playbackSync: PlaybackSync | null = null;
   let fileInput: HTMLInputElement;
   let videoPlayer: VideoPlayer;
-
-  // Track remote streams by peer ID
-  let remoteStreams = new Map<string, MediaStream>();
-
-  // Local camera preview element
-  let localVideoEl: HTMLVideoElement;
-
-  // Reactively bind local stream to preview
-  $: if (localVideoEl && $mediaStore.localStream) {
-    localVideoEl.srcObject = $mediaStore.localStream;
-  } else if (localVideoEl) {
-    localVideoEl.srcObject = null;
-  }
+  let startSharing: () => Promise<void>;
 
   onMount(async () => {
     // 1. Join room via REST API
@@ -69,21 +56,15 @@
     // 3. Create PeerManager to handle WebRTC connections
     peerManager = new PeerManager(signaling, $userStore.id);
 
-    // Handle incoming remote streams
-    peerManager.onRemoteStream((userId, stream) => {
-      console.log(`[Room] Remote stream from ${userId}`);
-      remoteStreams.set(userId, stream);
-      remoteStreams = new Map(remoteStreams); // trigger reactivity
-    });
-
-    // 4. Determine host status from peer list
+    // 4. Determine host status — first user in the room is the host
+    // The ROOM_PEER_LIST event will tell us if we're alone (host) or joining existing peers (guest)
     signaling.on('room:peer-list', (msg) => {
       const { peers } = msg.data as { peers: string[] };
       const isHost = peers.length === 0;
       roomStore.setHost(isHost);
       console.log(`[Room] Role: ${isHost ? 'HOST' : 'GUEST'}`);
 
-      // 5. Create PlaybackSync
+      // 5. Create PlaybackSync now that we know host status
       if (peerManager && !playbackSync) {
         playbackSync = new PlaybackSync(
           (data) => peerManager?.broadcastToAll(data),
@@ -108,40 +89,11 @@
     peerManager = null;
     signaling?.disconnect();
     signaling = null;
-    mediaStore.stopAll();
     roomStore.reset();
     fileTransferStore.reset();
     connectionStore.set({ status: 'disconnected', peerCount: 0, connectedPeerCount: 0 });
-    remoteStreams.clear();
     console.log('[Room] Cleaned up');
   });
-
-  /** Handle media control events from RoomControls */
-  function handleCameraToggle(e: CustomEvent<{ stream: MediaStream | null }>) {
-    const { stream } = e.detail;
-    if (stream && peerManager) {
-      peerManager.addStreamToAll(stream);
-    }
-  }
-
-  function handleMicToggle(e: CustomEvent<{ stream: MediaStream | null }>) {
-    const { stream } = e.detail;
-    if (stream && peerManager) {
-      peerManager.addStreamToAll(stream);
-    }
-  }
-
-  function handleScreenShareStart(e: CustomEvent<{ stream: MediaStream }>) {
-    const { stream } = e.detail;
-    if (peerManager) {
-      peerManager.addStreamToAll(stream);
-    }
-  }
-
-  function handleScreenShareStop() {
-    // Stream tracks already stopped by mediaStore
-    // Peer connections will detect track removal
-  }
 
   /** Handle file selection */
   async function handleFileSelect(e: Event) {
@@ -188,6 +140,7 @@
     playbackSync?.onLocalSeek();
   }
 
+  /** Format bytes to human-readable string */
   function formatBytes(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -255,12 +208,7 @@
           class="hidden"
         />
       {/if}
-      <RoomControls
-        on:cameraToggle={handleCameraToggle}
-        on:micToggle={handleMicToggle}
-        on:screenShareStart={handleScreenShareStart}
-        on:screenShareStop={handleScreenShareStop}
-      />
+      <RoomControls {peerManager} onShareScreen={startSharing} />
     </div>
   </header>
 
@@ -305,7 +253,7 @@
           onPause={handlePause}
           onSeek={handleSeek}
         />
-        <ScreenShare />
+        <ScreenShare {peerManager} bind:startSharing />
 
         <!-- No video loaded prompt -->
         {#if !$fileTransferStore.receivedVideoUrl && !$fileTransferStore.isReceiving}
@@ -323,41 +271,10 @@
         {/if}
       </div>
 
-      <!-- Participant video tiles (local + remote) -->
+      <!-- Peer video tiles -->
       <div class="flex gap-2 p-2 overflow-x-auto border-t border-surface-border bg-surface-card/30">
-        <!-- Local camera tile -->
-        {#if $mediaStore.cameraOn && $mediaStore.localStream}
-          <div
-            class="relative w-40 h-28 flex-shrink-0 rounded-lg overflow-hidden bg-surface-card border-2 border-brand-500/50"
-          >
-            <video
-              bind:this={localVideoEl}
-              autoplay
-              playsinline
-              muted
-              class="w-full h-full object-cover mirror"
-            >
-              <track kind="captions" />
-            </video>
-            <div
-              class="absolute bottom-0 left-0 right-0 px-2 py-1 bg-gradient-to-t from-black/70 to-transparent"
-            >
-              <span class="text-xs text-white font-medium">You</span>
-            </div>
-            {#if !$mediaStore.micOn}
-              <div class="absolute top-1 right-1">
-                <span
-                  class="w-5 h-5 flex items-center justify-center rounded-full bg-red-500/80 text-[10px]"
-                  >🔇</span
-                >
-              </div>
-            {/if}
-          </div>
-        {/if}
-
-        <!-- Remote peer tiles -->
         {#each $peerStore as peer (peer.userId)}
-          <PeerVideo {peer} stream={remoteStreams.get(peer.userId) ?? null} />
+          <PeerVideo {peer} />
         {/each}
       </div>
     </div>
@@ -368,9 +285,3 @@
     </aside>
   </div>
 </div>
-
-<style>
-  .mirror {
-    transform: scaleX(-1);
-  }
-</style>

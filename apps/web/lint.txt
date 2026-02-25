@@ -1,0 +1,6 @@
+[0m[0m
+[0m[4mD:\Projects\WatchSpace\apps\web\src\lib\webrtc\PeerManager.ts[24m[0m
+[0m  [2m20:1[22m  [31merror[39m  './peer' import is duplicated  [2mno-duplicate-imports[22m[0m
+[0m[0m
+[0m[31m[1m✖ 1 problem (1 error, 0 warnings)[22m[39m[0m
+[0m[31m[1m[22m[39m[0m

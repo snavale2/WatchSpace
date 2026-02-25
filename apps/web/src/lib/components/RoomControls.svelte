@@ -1,38 +1,76 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import { mediaStore } from '$stores/media';
+  import type { PeerManager } from '$webrtc/PeerManager';
+  import { peerStore } from '$stores/peers';
+  import { userStore } from '$stores/user';
+  import { onDestroy } from 'svelte';
 
-  const dispatch = createEventDispatcher<{
-    cameraToggle: { stream: MediaStream | null };
-    micToggle: { stream: MediaStream | null };
-    screenShareStart: { stream: MediaStream };
-    screenShareStop: undefined;
-  }>();
+  export let peerManager: PeerManager | null = null;
+  export let onShareScreen: () => void = () => {};
+
+  let cameraOn = false;
+  let micOn = false;
+  let localStream: MediaStream | null = null;
 
   async function toggleCamera() {
-    const stream = await mediaStore.toggleCamera();
-    dispatch('cameraToggle', { stream });
+    cameraOn = !cameraOn;
+    await updateLocalStream();
   }
 
   async function toggleMic() {
-    const stream = await mediaStore.toggleMic();
-    dispatch('micToggle', { stream });
+    micOn = !micOn;
+    await updateLocalStream();
   }
 
-  async function startScreenShare() {
-    const stream = await mediaStore.startScreenShare();
-    if (stream) {
-      dispatch('screenShareStart', { stream });
+  async function updateLocalStream() {
+    if (!cameraOn && !micOn) {
+      if (localStream) {
+        localStream.getTracks().forEach((t) => t.stop());
+        localStream = null;
+      }
+    } else {
+      try {
+        if (localStream) {
+          localStream.getTracks().forEach((t) => t.stop());
+        }
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: cameraOn,
+          audio: micOn,
+        });
+      } catch (err) {
+        console.error('Failed to get local media:', err);
+        cameraOn = false;
+        micOn = false;
+        if (localStream) {
+          localStream.getTracks().forEach((t) => t.stop());
+          localStream = null;
+        }
+      }
+    }
+
+    // Update the PeerManager so it streams to everyone
+    if (peerManager) {
+      peerManager.setLocalStream(localStream || undefined);
+    }
+
+    // Update our own peer record in the store so our local tile shows correctly
+    if ($userStore?.id) {
+      peerStore.updatePeer($userStore.id, {
+        hasMic: micOn,
+        stream: localStream || undefined,
+      });
     }
   }
 
-  function stopScreenShare() {
-    mediaStore.stopScreenShare();
-    dispatch('screenShareStop');
-  }
+  onDestroy(() => {
+    if (localStream) {
+      localStream.getTracks().forEach((t) => t.stop());
+      localStream = null;
+    }
+  });
 
   function copyRoomLink() {
     navigator.clipboard.writeText(window.location.href);
+    // TODO: Show a brief toast notification
   }
 
   function leaveRoom() {
@@ -43,32 +81,30 @@
 <div class="flex items-center gap-2">
   <button
     on:click={toggleCamera}
-    class="p-2 rounded-lg transition-colors {$mediaStore.cameraOn
+    class="p-2 rounded-lg transition-colors {cameraOn
       ? 'bg-brand-600 text-white'
       : 'bg-surface-dark text-gray-400 hover:text-white'}"
-    aria-label={$mediaStore.cameraOn ? 'Turn off camera' : 'Turn on camera'}
+    aria-label={cameraOn ? 'Turn off camera' : 'Turn on camera'}
   >
     📷
   </button>
 
   <button
     on:click={toggleMic}
-    class="p-2 rounded-lg transition-colors {$mediaStore.micOn
+    class="p-2 rounded-lg transition-colors {micOn
       ? 'bg-brand-600 text-white'
       : 'bg-surface-dark text-gray-400 hover:text-white'}"
-    aria-label={$mediaStore.micOn ? 'Mute mic' : 'Unmute mic'}
+    aria-label={micOn ? 'Mute mic' : 'Unmute mic'}
   >
     🎤
   </button>
 
   <button
-    on:click={$mediaStore.screenSharing ? stopScreenShare : startScreenShare}
-    class="p-2 rounded-lg transition-colors {$mediaStore.screenSharing
-      ? 'bg-brand-600 text-white'
-      : 'bg-surface-dark text-gray-400 hover:text-white'}"
-    aria-label={$mediaStore.screenSharing ? 'Stop sharing' : 'Share screen'}
+    on:click={onShareScreen}
+    class="p-2 rounded-lg bg-surface-dark text-gray-400 hover:text-white transition-colors"
+    aria-label="Share screen"
   >
-    🖥️
+    🖥
   </button>
 
   <button

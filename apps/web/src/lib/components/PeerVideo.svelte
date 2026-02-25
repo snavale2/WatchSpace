@@ -2,30 +2,18 @@
   import type { PeerInfo } from '@watchspace/shared';
 
   export let peer: PeerInfo;
-  export let stream: MediaStream | null = null;
 
   let videoElement: HTMLVideoElement;
 
-  // Reactively bind stream to video element
-  $: if (videoElement && stream) {
-    videoElement.srcObject = stream;
-  } else if (videoElement) {
-    videoElement.srcObject = null;
+  $: if (videoElement && peer.stream) {
+    videoElement.srcObject = peer.stream;
   }
 </script>
 
 <div
   class="relative w-40 h-28 flex-shrink-0 rounded-lg overflow-hidden bg-surface-card border border-surface-border group"
 >
-  <video bind:this={videoElement} autoplay playsinline muted class="w-full h-full object-cover">
-    <track kind="captions" />
-  </video>
-
-  {#if !stream}
-    <div class="absolute inset-0 flex items-center justify-center bg-surface-card">
-      <span class="text-2xl">👤</span>
-    </div>
-  {/if}
+  <video bind:this={videoElement} autoplay playsinline muted class="w-full h-full object-cover" />
 
   <!-- Name overlay -->
   <div

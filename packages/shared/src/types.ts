@@ -54,9 +54,9 @@ export type SignalMessageType = 'offer' | 'answer' | 'ice-candidate' | 'renegoti
 export interface PeerInfo {
   userId: string;
   displayName: string;
-  hasCamera: boolean;
   hasMic: boolean;
   isScreenSharing: boolean;
+  stream?: MediaStream;
 }
 
 /** File chunk sent through WebRTC data channels */
