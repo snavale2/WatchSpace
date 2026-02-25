@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: watchspace-backend
+    env: docker
+    region: ohio
+    plan: free
+    branch: dev
+    dockerCommand: 'npm run start'
+    healthCheckPath: /health
+    autoDeploy: false # Deployed via GitHub Actions Hook
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: CORS_ORIGIN
+        sync: false # Set this in Render dashboard (e.g., frontend URL)
+      - key: REDIS_URL
+        sync: false # Set this in Render dashboard (Upstash string)
