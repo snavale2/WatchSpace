@@ -5,7 +5,7 @@ name: PR Test Gate
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [master, dev]
     types: [opened, synchronize, reopened]
 
 # Cancel in-progress runs for the same PR
