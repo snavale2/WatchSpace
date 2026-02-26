@@ -7,10 +7,10 @@ WORKDIR /app
 
 # ── Install dependencies ─────────────
 FROM base AS deps
-COPY package.json bun.lock* ./
+COPY package.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/server/package.json ./apps/server/
-RUN bun install --production
+RUN bun install --no-save --production
 
 # ── Build shared package ─────────────
 FROM base AS build
