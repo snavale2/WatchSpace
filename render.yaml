@@ -5,7 +5,6 @@ services:
     region: ohio
     plan: free
     branch: master
-    dockerCommand: 'npm run start'
     healthCheckPath: /health
     autoDeploy: false # Deployed via GitHub Actions Hook
     envVars:
