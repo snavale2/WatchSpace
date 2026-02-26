@@ -10,6 +10,8 @@ on:
       - 'apps/server/**'
       - 'packages/shared/**'
       - '.github/workflows/backend.yml'
+      - 'Dockerfile'
+      - 'render.yaml'
   workflow_dispatch:
 
 # Cancel in-progress runs for the same branch
