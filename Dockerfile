@@ -10,7 +10,7 @@ FROM base AS deps
 COPY package.json bun.lock* ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/server/package.json ./apps/server/
-RUN bun install --frozen-lockfile --production
+RUN bun install --production
 
 # ── Build shared package ─────────────
 FROM base AS build
