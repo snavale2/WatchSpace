@@ -10,7 +10,7 @@ FROM base AS deps
 COPY package.json ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/server/package.json ./apps/server/
-RUN bun install --no-save --production
+RUN bun install --no-save --production --ignore-scripts
 
 # ── Build shared package ─────────────
 FROM base AS build
